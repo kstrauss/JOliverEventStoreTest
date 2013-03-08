@@ -19,18 +19,33 @@ namespace JOliverEventStoreTest
         }
         static void Main(string[] args)
         {
-            var bus = Configure.With().DefaultBuilder()
+            var bus = Configure.With().Log4Net()
+                .DefaultBuilder()
                 //.InMemorySubscriptionStorage()
-                .Log4Net()
+                
+                //
                 .MsmqTransport()
+                
+                //.DontUseTransactions()
+                //.MessageForwardingInCaseOfFault()
                 .MsmqSubscriptionStorage()
-                .DontUseTransactions()
-                .MessageForwardingInCaseOfFault()
                 .UnicastBus()
-                //.AllowSubscribeToSelf()
+                    /* if you do not do this there will be no messages placed in the
+                     * subscription queue to allow MsmqSubscriptionStorage to work
+                     * Interestingly enough if you use InMemorySubscriptionStorage 
+                     * subscriptions will work. If you remove LoadMessageHandlers 
+                     * the subscriptions are already in the queue, so it knows to forward
+                     * the messages to the existing handlers.
+                     * 
+                     * If i had more energy I would submit a patch for nservicebus, but
+                     * really??
+                     */
+                    .LoadMessageHandlers()
+                .AllowSubscribeToSelf()
                 .CreateBus()
                 .Start();
             var myListener = new TestSubscriber(bus);
+            bus.Subscribe(typeof(TestDomainMessage));
             
 
             IStoreEvents store = Wireup.Init()
@@ -44,7 +59,6 @@ namespace JOliverEventStoreTest
                 .UsingSynchronousDispatchScheduler(new MyDispatcher(bus))
                 .Build();
 
-            
             PopulateStore(store);
             Console.ReadKey();
         }
