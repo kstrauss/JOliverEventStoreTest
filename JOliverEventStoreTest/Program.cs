@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Transactions;
 using EventStore;
 using EventStore.Dispatcher;
 using EventStore.Persistence.SqlPersistence.SqlDialects;
@@ -25,10 +26,11 @@ namespace JOliverEventStoreTest
                 
                 //
                 .MsmqTransport()
-                
+                .RavenPersistence("NServiceBus.Persistence", "NServiceBusKarlTest")
+                .RavenSubscriptionStorage()
                 //.DontUseTransactions()
                 //.MessageForwardingInCaseOfFault()
-                .MsmqSubscriptionStorage()
+                //.MsmqSubscriptionStorage()
                 .UnicastBus()
                     /* if you do not do this there will be no messages placed in the
                      * subscription queue to allow MsmqSubscriptionStorage to work
@@ -56,27 +58,40 @@ namespace JOliverEventStoreTest
                     .WithDialect(new MsSqlDialect())
                     .InitializeStorageEngine()
                     .UsingBinarySerialization()
-                .UsingSynchronousDispatchScheduler(new MyDispatcher(bus))
+                .UsingAsynchronousDispatchScheduler(new MyDispatcher(bus))
                 .Build();
-
-            PopulateStore(store);
+            try
+            {
+                PopulateStore(store, bus);
+            }
+            catch (Exception)
+            {
+                
+                Console.Error.WriteLine("Done.");
+            }
+            
             Console.ReadKey();
         }
-        static void PopulateStore(IStoreEvents store)
+        static void PopulateStore(IStoreEvents store, IBus bus)
         {
             var agID = Guid.NewGuid();
-
+            var stream = store.CreateStream(agID);
             var loE = new List<EventMessage>();
             AddTextMessage(loE, "CreateEntity");
             AddTextMessage(loE, "SupplyHedgedForPeriod");
             AddTextMessage(loE, "SupplyHedgedForPeriod");
             AddTextMessage(loE, "Usage");
 
-            var stream = store.CreateStream(agID);
             loE.ForEach(stream.Add);
-            stream.CommitChanges(Guid.NewGuid());
-
             
+            using (var scope = new TransactionScope())
+            {
+                Console.WriteLine("In transaction {0}", Transaction.Current != null);
+                stream.CommitChanges(Guid.NewGuid());
+                throw new Exception("Bad stuff here");
+                bus.Publish(new TestDomainMessage("hello"));
+                scope.Complete();
+            }
         }
 
         //static void 
